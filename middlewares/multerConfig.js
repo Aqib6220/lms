@@ -10,7 +10,7 @@ const storage = new CloudinaryStorage({
   cloudinary: cloudinary,
   params: async (req, file) => {
     let folder = "general_uploads";
-    let resourceType = "raw"; 
+    let resourceType = "raw";
 
     if (file.mimetype.startsWith("image/")) {
       folder = req.baseUrl.includes("/courses")
@@ -44,7 +44,12 @@ const storage = new CloudinaryStorage({
       };
     }
 
-    if (file.mimetype === "application/pdf") {
+    // Accept PDF files even if browser reports a generic mimetype
+    const isPdfByMime = (file.mimetype || "").toLowerCase().includes("pdf");
+    const isPdfByName = (file.originalname || "")
+      .toLowerCase()
+      .endsWith(".pdf");
+    if (isPdfByMime || isPdfByName) {
       folder = "lesson_notes"; // Store PDF notes in a dedicated folder
       return {
         folder,
