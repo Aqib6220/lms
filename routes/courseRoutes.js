@@ -68,12 +68,12 @@ router.get(
 );
 
 // ✅ Partial Update Course (Trainer & Admin Only)
-router.patch(
+router.put(
   "/:courseId",
   protect(["admin", "trainer"]),
   async (req, res, next) => {
     const { courseId } = req.params;
-
+    
     // ✅ Validate if courseId is a valid MongoDB ObjectId
     if (!mongoose.isValidObjectId(courseId)) {
       return res
