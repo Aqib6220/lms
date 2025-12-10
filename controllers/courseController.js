@@ -374,7 +374,6 @@ const getCourse = async (req, res) => {
         options: { sort: { order: 1, createdAt: 1 } },
       })
       .populate("trainer", "name email");
-
     if (!course) {
       return res
         .status(404)
@@ -402,159 +401,146 @@ const getCourse = async (req, res) => {
   }
 };
 
-const updateCourse = async (req, res) => {
+
+// Update Course Controller
+const updateCourse = async (req, res,next) => {
   try {
-    const { courseId } = req.params;
-    let updates = req.body;
+    const courseId = req.params.courseId;
+    console.log(req.params)
+    const {
+      title,
+      description,
+      category,
+      thumbnail,
+      price,
+      duration,
+      prerequisites,
+      courseLevel,
+      certificationAvailable,
+      language,
+      board,
+      classLevel,
+      subject,
+      targetAudience,
+      chapters, // Expecting array of chapters with lessons
+      syllabus, // Array of syllabus items
+    } = req.body;
 
-    // ✅ Validate course ID
-    if (!courseId) {
-      return res.status(400).json({ message: "Course ID is required" });
-    }
-
-    // ✅ Find course
-    const course = await Course.findById(courseId).populate("lessons");
+    // Find the course
+    const course = await Course.findById(courseId);
     if (!course) {
       return res.status(404).json({ message: "Course not found" });
     }
 
-    // ✅ Check user authorization (Trainer or Admin)
-    if (
-      req.user.role !== "admin" &&
-      course.trainer.toString() !== req.user.id
-    ) {
-      return res
-        .status(403)
-        .json({ message: "Unauthorized to update this course" });
+    // Update basic fields
+    course.title = title || course.title;
+    course.description = description || course.description;
+    course.category = category || course.category;
+    course.thumbnail = thumbnail || course.thumbnail;
+    course.price = price !== undefined ? price : course.price;
+    course.duration = duration || course.duration;
+    course.prerequisites = prerequisites || course.prerequisites;
+    course.courseLevel = courseLevel || course.courseLevel;
+    course.certificationAvailable =
+      certificationAvailable !== undefined
+        ? certificationAvailable
+        : course.certificationAvailable;
+    course.language = language || course.language;
+    course.board = board || course.board;
+    course.classLevel = classLevel || course.classLevel;
+    course.subject = subject || course.subject;
+    course.targetAudience = targetAudience || course.targetAudience;
+
+    // Handle syllabus
+    if (syllabus) {
+      course.syllabus = Array.isArray(syllabus)
+        ? syllabus
+        : JSON.parse(syllabus);
     }
 
-    // ✅ Handle thumbnail upload if provided
-    if (req.files?.thumbnail) {
-      const file = req.files.thumbnail[0];
+    // Handle chapters and lessons
+    if (chapters) {
+      let parsedChapters = Array.isArray(chapters)
+        ? chapters
+        : JSON.parse(chapters); // Parse if sent as string
 
-      // Upload new thumbnail to Cloudinary
-      const uploadResponse = await cloudinary.uploader.upload(file.path, {
-        folder: "course_thumbnails",
-      });
+      const chapterIds = [];
 
-      // Delete old thumbnail if it exists
-      if (course.thumbnail) {
-        try {
-          const oldPublicId = course.thumbnail.split("/").pop().split(".")[0];
-          await cloudinary.uploader.destroy(`course_thumbnails/${oldPublicId}`);
-        } catch (error) {
-          console.error("Failed to delete old thumbnail:", error);
-        }
-      }
+      for (const ch of parsedChapters) {
+        let chapter;
 
-      updates.thumbnail = uploadResponse.secure_url;
-    }
-
-    // ✅ Handle syllabus update
-    if (updates.syllabus) {
-      try {
-        const parsedSyllabus = Array.isArray(updates.syllabus)
-          ? updates.syllabus
-          : JSON.parse(updates.syllabus);
-
-        if (!Array.isArray(parsedSyllabus))
-          throw new Error("Invalid syllabus format");
-
-        parsedSyllabus.forEach((item) => {
-          if (!item.title || !item.description) {
-            throw new Error(
-              "Each syllabus item must have a title and description."
-            );
-          }
-        });
-
-        updates.syllabus = parsedSyllabus;
-      } catch (err) {
-        return res
-          .status(400)
-          .json({ success: false, message: "Invalid syllabus format" });
-      }
-    }
-
-    // ✅ Handle lesson video updates
-    if (req.files?.lessonVideos) {
-      const videoFiles = req.files.lessonVideos;
-      const lessonUpdates = JSON.parse(req.body.lessonUpdates || "[]");
-
-      for (let i = 0; i < lessonUpdates.length; i++) {
-        const lessonUpdate = lessonUpdates[i];
-        const { _id, title, description } = lessonUpdate;
-
-        let newVideoUrl = null;
-
-        // ✅ Upload new video if a new file is provided
-        if (videoFiles[i]) {
-          const uploadResponse = await cloudinary.uploader.upload(
-            videoFiles[i].path,
-            {
-              resource_type: "video",
-              folder: "lesson_videos",
-            }
+        // Check if chapter exists
+        if (ch._id) {
+          chapter = await Chapter.findByIdAndUpdate(
+            ch._id,
+            { title: ch.title, description: ch.description, order: ch.order },
+            { new: true }
           );
-
-          newVideoUrl = uploadResponse.secure_url;
-
-          // ✅ Delete old video if updating an existing lesson
-          if (_id) {
-            const lesson = await Lesson.findById(_id);
-            if (lesson && lesson.videoUrl) {
-              try {
-                const oldVideoPublicId = lesson.videoUrl
-                  .split("/")
-                  .pop()
-                  .split(".")[0];
-                await cloudinary.uploader.destroy(
-                  `lesson_videos/${oldVideoPublicId}`,
-                  { resource_type: "video" }
-                );
-              } catch (error) {
-                console.error("Failed to delete old video:", error);
-              }
-            }
-          }
-        }
-
-        if (_id) {
-          // ✅ Update existing lesson
-          await Lesson.findByIdAndUpdate(_id, {
-            title,
-            description,
-            videoUrl: newVideoUrl || lessonUpdate.videoUrl, // Keep old URL if no new video
-          });
         } else {
-          // ✅ Create new lesson
-          const newLesson = new Lesson({
-            course: courseId,
-            title,
-            description,
-            videoUrl: newVideoUrl,
+          chapter = await Chapter.create({
+            title: ch.title,
+            description: ch.description,
+            order: ch.order,
+            course: course._id,
           });
-
-          await newLesson.save();
-          course.lessons.push(newLesson._id);
         }
-      }
-    }
-    // ✅ Apply partial updates
-    Object.assign(course, updates);
-    const updatedCourse = await course.save();
 
-    return res.status(200).json({
-      message: "Course updated successfully",
-      course: updatedCourse,
-    });
+        // Handle lessons inside chapter
+        if (ch.lessons && ch.lessons.length > 0) {
+          const lessonIds = [];
+          for (const l of ch.lessons) {
+            let lesson;
+            if (l._id) {
+              lesson = await Lesson.findByIdAndUpdate(
+                l._id,
+                {
+                  title: l.title,
+                  description: l.description,
+                  videoUrl: l.videoUrl,
+                  videoType: l.videoType,
+                  notesUrl: l.notesUrl,
+                  duration: l.duration,
+                  order: l.order,
+                  isFreePreview: l.isFreePreview,
+                  subtitles: l.subtitles,
+                  chapter: chapter._id,
+                  course: course._id,
+                },
+                { new: true }
+              );
+            } else {
+              lesson = await Lesson.create({
+                ...l,
+                chapter: chapter._id,
+                course: course._id,
+              });
+            }
+            lessonIds.push(lesson._id);
+          }
+
+          // Update chapter with lessons
+          chapter.lessons = lessonIds;
+          await chapter.save();
+        }
+
+        chapterIds.push(chapter._id);
+      }
+
+      // Update course with chapters
+      course.chapters = chapterIds;
+    }
+
+    // Save the updated course
+    await course.save();
+
+    res.status(200).json({ message: "Course updated successfully", course });
   } catch (error) {
     console.error("Error updating course:", error);
-    return res
-      .status(500)
-      .json({ message: "Failed to update course", error: error.message });
+    res.status(500).json({ message: "Error updating course", error });
   }
 };
+
+
 
 const deleteCourse = async (req, res) => {
   try {
