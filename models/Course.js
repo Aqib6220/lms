@@ -34,6 +34,11 @@ const courseSchema = new mongoose.Schema(
         rating: Number,
       },
     ],
+    courseDocuments: {
+      syllabusPdf: { type: String },
+      notesPdf: { type: String },
+      previousPapersPdf: { type: String },
+    },
 
     // Approval workflow
     status: {

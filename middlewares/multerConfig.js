@@ -10,7 +10,7 @@ const storage = new CloudinaryStorage({
   cloudinary: cloudinary,
   params: async (req, file) => {
     let folder = "general_uploads";
-    let resourceType = "raw";
+    let resourceType = "image";
 
     if (file.mimetype.startsWith("image/")) {
       folder = req.baseUrl.includes("/courses")
@@ -34,28 +34,29 @@ const storage = new CloudinaryStorage({
       };
     }
 
+    // ---------------- CSV ----------------
     if (file.mimetype === "text/csv") {
-      folder = "exam_questions"; // Store CSV files in a dedicated folder
+      folder = "exam_questions";
       return {
         folder,
-        format: "csv",
         public_id: generateSafePublicId("csv"),
-        resource_type: "raw",
+        resource_type: "raw", // ✅ Must be 'raw', not 'image'
+        access_mode: "public", // ✅ Recommended for direct access
       };
     }
 
-    // Accept PDF files even if browser reports a generic mimetype
+    // ---------------- PDF ----------------
     const isPdfByMime = (file.mimetype || "").toLowerCase().includes("pdf");
     const isPdfByName = (file.originalname || "")
       .toLowerCase()
       .endsWith(".pdf");
     if (isPdfByMime || isPdfByName) {
-      folder = "lesson_notes"; // Store PDF notes in a dedicated folder
+      folder = "lesson_notes";
       return {
         folder,
-        format: "pdf",
         public_id: generateSafePublicId("pdf"),
-        resource_type: "raw",
+        resource_type: "raw", // ✅ MUST BE 'raw'
+        access_mode: "public", // ✅ Recommended for direct access
       };
     }
 
@@ -76,6 +77,10 @@ module.exports = {
     // { name: "bannerImage", maxCount: 1 },
     { name: "lessonVideos", maxCount: 50 },
     { name: "lessonNotes", maxCount: 50 }, // ✅ Add PDF notes upload
+    // ✅ NEW (Course-level PDFs)
+    { name: "courseSyllabusPdf", maxCount: 1 },
+    { name: "courseNotesPdf", maxCount: 1 },
+    { name: "coursePreviousPapersPdf", maxCount: 1 },
   ]),
   uploadCSV: upload.single("file"), // ✅ Add this for CSV uploads
 };

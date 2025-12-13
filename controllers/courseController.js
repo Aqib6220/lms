@@ -26,6 +26,12 @@ const createCourse = async (req, res) => {
       subject,
       targetAudience,
     } = req.body;
+    const syllabusPdf = req.files?.courseSyllabusPdf?.[0]?.path || null;
+
+    const notesPdf = req.files?.courseNotesPdf?.[0]?.path || null;
+
+    const previousPapersPdf =
+      req.files?.coursePreviousPapersPdf?.[0]?.path || null;
 
     // Parse chapters data from form
     const chaptersRaw = req.body.chapters;
@@ -167,6 +173,11 @@ const createCourse = async (req, res) => {
       classLevel,
       subject,
       targetAudience,
+      courseDocuments: {
+        syllabusPdf,
+        notesPdf,
+        previousPapersPdf,
+      },
       status: "pending",
     });
 
@@ -401,12 +412,11 @@ const getCourse = async (req, res) => {
   }
 };
 
-
 // Update Course Controller
-const updateCourse = async (req, res,next) => {
+const updateCourse = async (req, res, next) => {
   try {
     const courseId = req.params.courseId;
-    console.log(req.params)
+    console.log(req.params);
     const {
       title,
       description,
@@ -539,8 +549,6 @@ const updateCourse = async (req, res,next) => {
     res.status(500).json({ message: "Error updating course", error });
   }
 };
-
-
 
 const deleteCourse = async (req, res) => {
   try {
