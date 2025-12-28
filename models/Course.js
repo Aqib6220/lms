@@ -40,6 +40,14 @@ const courseSchema = new mongoose.Schema(
       previousPapersPdf: { type: String },
     },
 
+    // Course-level notes (multiple PDFs with titles)
+    courseNotes: [
+      {
+        title: { type: String },
+        url: { type: String },
+      },
+    ],
+
     // Approval workflow
     status: {
       type: String,
