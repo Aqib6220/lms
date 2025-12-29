@@ -208,7 +208,7 @@ const createCourse = async (req, res) => {
         message: "Invalid syllabus format: " + err.message,
       });
     }
-
+// changing the cmmit
     // ✅ Create Course (Pending Approval)
     const course = new Course({
       title,
