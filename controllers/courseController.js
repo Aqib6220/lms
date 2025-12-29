@@ -71,6 +71,22 @@ const createCourse = async (req, res) => {
     const previousPapersPdf =
       req.files?.coursePreviousPapersPdf?.[0]?.path || null;
 
+    // Course-level multiple notes files and metadata
+    const courseNoteFiles = req.files?.courseNotes || [];
+    let courseNotesMeta = [];
+    try {
+      courseNotesMeta = Array.isArray(req.body.courseNotesMeta)
+        ? req.body.courseNotesMeta
+        : JSON.parse(req.body.courseNotesMeta || "[]");
+    } catch (err) {
+      courseNotesMeta = [];
+    }
+
+    const courseNotes = courseNoteFiles.map((f, idx) => ({
+      title: (courseNotesMeta[idx] && courseNotesMeta[idx].title) || courseNotesMeta[idx] || `Note ${idx + 1}`,
+      url: f?.path || f?.secure_url || null,
+    }));
+
     // Parse chapters data from form
     const chaptersRaw = req.body.chapters;
     let chaptersData = [];
@@ -217,6 +233,7 @@ const createCourse = async (req, res) => {
         previousPapersPdf,
       },
       status: "pending",
+      courseNotes,
     });
 
     await course.save();
@@ -483,6 +500,7 @@ const updateCourse = async (req, res, next) => {
     const uploadedSyllabusPdf = req.files?.courseSyllabusPdf?.[0]?.path || null;
     const uploadedNotesPdf = req.files?.courseNotesPdf?.[0]?.path || null;
     const uploadedPreviousPapersPdf = req.files?.coursePreviousPapersPdf?.[0]?.path || null;
+    const uploadedCourseNotesFiles = req.files?.courseNotes || [];
 
     // Find the course
     const course = await Course.findById(courseId);
@@ -539,7 +557,28 @@ const updateCourse = async (req, res, next) => {
     } catch (err) {
       console.error("Error deleting replaced course document:", err?.message || err);
     }
+    // Handle newly uploaded course-level notes (append to existing course.courseNotes)
+    try {
+      let courseNotesMeta = [];
+      try {
+        courseNotesMeta = Array.isArray(req.body.courseNotesMeta)
+          ? req.body.courseNotesMeta
+          : JSON.parse(req.body.courseNotesMeta || "[]");
+      } catch (err) {
+        courseNotesMeta = [];
+      }
 
+      if (uploadedCourseNotesFiles && uploadedCourseNotesFiles.length > 0) {
+        course.courseNotes = course.courseNotes || [];
+        uploadedCourseNotesFiles.forEach((f, idx) => {
+          const title = (courseNotesMeta[idx] && courseNotesMeta[idx].title) || courseNotesMeta[idx] || `Note ${course.courseNotes.length + 1}`;
+          const url = f?.path || f?.secure_url || null;
+          course.courseNotes.push({ title, url });
+        });
+      }
+    } catch (err) {
+      console.error("Error appending new course notes:", err?.message || err);
+    }
     // Handle syllabus
     if (syllabus) {
       course.syllabus = Array.isArray(syllabus)

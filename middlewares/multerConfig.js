@@ -81,6 +81,8 @@ module.exports = {
     { name: "courseSyllabusPdf", maxCount: 1 },
     { name: "courseNotesPdf", maxCount: 1 },
     { name: "coursePreviousPapersPdf", maxCount: 1 },
+    // Multiple course-level notes (title + PDF) support
+    { name: "courseNotes", maxCount: 50 },
   ]),
   uploadCSV: upload.single("file"), // ✅ Add this for CSV uploads
 };
