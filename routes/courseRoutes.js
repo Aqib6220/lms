@@ -25,9 +25,9 @@ router.post(
     uploadCourseFiles(req, res, (err) => {
       if (err) {
         console.error("Multer Error:", err.message || err);
-        return res.status(400).json({ 
-          success: false, 
-          message: err.message || "File upload error" 
+        return res.status(400).json({
+          success: false,
+          message: err.message || "File upload error",
         });
       }
       next();
@@ -56,14 +56,14 @@ router.delete("/:courseId", protect(["trainer", "admin"]), deleteCourse);
 // ✅ Enroll in a Course (Learner Only)
 router.post(
   "/enroll/:courseId",
-  protect(["learner", "trainer", "admin", "examinee"]),
+  protect(["learner", "trainer", "admin"]),
   enrollCourse
 );
 
 // ✅ Get Enrolled Courses for Learner
 router.get(
   "/enrolled",
-  protect(["learner", "trainer", "admin", "examinee"]),
+  protect(["learner", "trainer", "admin"]),
   getEnrolledCourses
 );
 
@@ -73,7 +73,7 @@ router.put(
   protect(["admin", "trainer"]),
   async (req, res, next) => {
     const { courseId } = req.params;
-    
+
     // ✅ Validate if courseId is a valid MongoDB ObjectId
     if (!mongoose.isValidObjectId(courseId)) {
       return res

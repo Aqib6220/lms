@@ -7,7 +7,7 @@ const UserSchema = new mongoose.Schema({
   password: { type: String, required: true },
   role: {
     type: String,
-    enum: ["learner", "trainer", "examinee", "admin"],
+    enum: ["learner", "trainer", "admin"],
     required: true,
   },
   profilePicture: { type: String, default: "" },
@@ -47,12 +47,6 @@ const UserSchema = new mongoose.Schema({
     },
   ],
 
-  enrolledExams: [
-    {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Exam",
-    },
-  ],
   // Examiner-Specific Fields
   canEnrollCourses: { type: Boolean, default: false }, // Cannot enroll unless upgraded
 

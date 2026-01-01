@@ -3,6 +3,11 @@ const Chapter = require("../models/Chapter");
 const Lesson = require("../models/Lesson");
 const User = require("../models/User");
 const cloudinary = require("../config/cloudinary");
+const isUserEnrolled = async (userId, courseId) => {
+  if (!userId) return false;
+  const user = await User.findById(userId).select("enrolledCourses");
+  return user?.enrolledCourses?.includes(courseId);
+};
 
 // Helper: destroy a Cloudinary resource (best-effort) by URL
 const destroyCloudinaryResourceByUrl = async (url, resourceTypeGuess) => {
@@ -11,7 +16,10 @@ const destroyCloudinaryResourceByUrl = async (url, resourceTypeGuess) => {
     const publicIdWithExt = url.split("/").pop();
     const publicId = publicIdWithExt.split(".")[0];
     let resource_type = resourceTypeGuess || "image";
-    if (url.includes("/video/") || publicIdWithExt.match(/\.mp4|\.mov|\.webm|\.mkv|\.avi/i)) {
+    if (
+      url.includes("/video/") ||
+      publicIdWithExt.match(/\.mp4|\.mov|\.webm|\.mkv|\.avi/i)
+    ) {
       resource_type = "video";
     } else if (url.includes("/raw/") || publicIdWithExt.match(/\.pdf|\.csv/i)) {
       resource_type = "raw";
@@ -23,13 +31,20 @@ const destroyCloudinaryResourceByUrl = async (url, resourceTypeGuess) => {
       resource_type === "video"
         ? ["lesson_videos"]
         : resource_type === "raw"
-        ? ["lesson_notes", "course_documents", "exam_questions"]
-        : ["course_images", "user_profiles", "course_thumbnails", "lesson_notes"];
+        ? ["lesson_notes", "course_documents"]
+        : [
+            "course_images",
+            "user_profiles",
+            "course_thumbnails",
+            "lesson_notes",
+          ];
 
     // Try with folder + publicId, then fallback to publicId alone
     for (const folder of folderCandidates) {
       try {
-        await cloudinary.uploader.destroy(`${folder}/${publicId}`, { resource_type });
+        await cloudinary.uploader.destroy(`${folder}/${publicId}`, {
+          resource_type,
+        });
         return;
       } catch (err) {
         // ignore and try next
@@ -38,16 +53,17 @@ const destroyCloudinaryResourceByUrl = async (url, resourceTypeGuess) => {
     // Final fallback
     await cloudinary.uploader.destroy(publicId, { resource_type });
   } catch (err) {
-    console.error("Failed to destroy Cloudinary resource:", url, err?.message || err);
+    console.error(
+      "Failed to destroy Cloudinary resource:",
+      url,
+      err?.message || err
+    );
   }
 };
 
 // ✅ Create Course (Trainers Only, Requires Admin Approval)
 const createCourse = async (req, res) => {
   try {
-    // console.log("=== Creating Course ===");
-    // console.log("Body keys:", Object.keys(req.body));
-
     const {
       title,
       description,
@@ -83,7 +99,10 @@ const createCourse = async (req, res) => {
     }
 
     const courseNotes = courseNoteFiles.map((f, idx) => ({
-      title: (courseNotesMeta[idx] && courseNotesMeta[idx].title) || courseNotesMeta[idx] || `Note ${idx + 1}`,
+      title:
+        (courseNotesMeta[idx] && courseNotesMeta[idx].title) ||
+        courseNotesMeta[idx] ||
+        `Note ${idx + 1}`,
       url: f?.path || f?.secure_url || null,
     }));
 
@@ -467,14 +486,16 @@ const getCourse = async (req, res) => {
   }
 };
 
-// Update Course Controller
 const updateCourse = async (req, res, next) => {
   try {
     const courseId = req.params.courseId;
     console.log(req.params);
     // Debug: print received files (if any) when handling update
     if (process.env.NODE_ENV !== "production") {
-      console.debug("Received files for updateCourse:", JSON.stringify(req.files, null, 2));
+      console.debug(
+        "Received files for updateCourse:",
+        JSON.stringify(req.files, null, 2)
+      );
     }
     const {
       title,
@@ -499,7 +520,8 @@ const updateCourse = async (req, res, next) => {
     const uploadedThumbnail = req.files?.thumbnail?.[0]?.path || null;
     const uploadedSyllabusPdf = req.files?.courseSyllabusPdf?.[0]?.path || null;
     const uploadedNotesPdf = req.files?.courseNotesPdf?.[0]?.path || null;
-    const uploadedPreviousPapersPdf = req.files?.coursePreviousPapersPdf?.[0]?.path || null;
+    const uploadedPreviousPapersPdf =
+      req.files?.coursePreviousPapersPdf?.[0]?.path || null;
     const uploadedCourseNotesFiles = req.files?.courseNotes || [];
 
     // Find the course
@@ -540,22 +562,41 @@ const updateCourse = async (req, res, next) => {
     course.courseDocuments = {
       syllabusPdf: uploadedSyllabusPdf || existingDocs.syllabusPdf || null,
       notesPdf: uploadedNotesPdf || existingDocs.notesPdf || null,
-      previousPapersPdf: uploadedPreviousPapersPdf || existingDocs.previousPapersPdf || null,
+      previousPapersPdf:
+        uploadedPreviousPapersPdf || existingDocs.previousPapersPdf || null,
     };
 
     // Delete old course docs if they are replaced
     try {
-      if (uploadedSyllabusPdf && existingDocs.syllabusPdf && existingDocs.syllabusPdf !== uploadedSyllabusPdf) {
+      if (
+        uploadedSyllabusPdf &&
+        existingDocs.syllabusPdf &&
+        existingDocs.syllabusPdf !== uploadedSyllabusPdf
+      ) {
         await destroyCloudinaryResourceByUrl(existingDocs.syllabusPdf, "raw");
       }
-      if (uploadedNotesPdf && existingDocs.notesPdf && existingDocs.notesPdf !== uploadedNotesPdf) {
+      if (
+        uploadedNotesPdf &&
+        existingDocs.notesPdf &&
+        existingDocs.notesPdf !== uploadedNotesPdf
+      ) {
         await destroyCloudinaryResourceByUrl(existingDocs.notesPdf, "raw");
       }
-      if (uploadedPreviousPapersPdf && existingDocs.previousPapersPdf && existingDocs.previousPapersPdf !== uploadedPreviousPapersPdf) {
-        await destroyCloudinaryResourceByUrl(existingDocs.previousPapersPdf, "raw");
+      if (
+        uploadedPreviousPapersPdf &&
+        existingDocs.previousPapersPdf &&
+        existingDocs.previousPapersPdf !== uploadedPreviousPapersPdf
+      ) {
+        await destroyCloudinaryResourceByUrl(
+          existingDocs.previousPapersPdf,
+          "raw"
+        );
       }
     } catch (err) {
-      console.error("Error deleting replaced course document:", err?.message || err);
+      console.error(
+        "Error deleting replaced course document:",
+        err?.message || err
+      );
     }
     // Handle newly uploaded course-level notes (append to existing course.courseNotes)
     try {
@@ -571,7 +612,10 @@ const updateCourse = async (req, res, next) => {
       if (uploadedCourseNotesFiles && uploadedCourseNotesFiles.length > 0) {
         course.courseNotes = course.courseNotes || [];
         uploadedCourseNotesFiles.forEach((f, idx) => {
-          const title = (courseNotesMeta[idx] && courseNotesMeta[idx].title) || courseNotesMeta[idx] || `Note ${course.courseNotes.length + 1}`;
+          const title =
+            (courseNotesMeta[idx] && courseNotesMeta[idx].title) ||
+            courseNotesMeta[idx] ||
+            `Note ${course.courseNotes.length + 1}`;
           const url = f?.path || f?.secure_url || null;
           course.courseNotes.push({ title, url });
         });
@@ -594,14 +638,17 @@ const updateCourse = async (req, res, next) => {
 
       const chapterIds = [];
 
-        const allFiles = req.files || {};
-        if (process.env.NODE_ENV !== "production") {
-          console.debug("allFiles in updateCourse:", JSON.stringify(allFiles, null, 2));
-        }
-        const videoFiles = allFiles.lessonVideos || [];
-        const pdfFiles = allFiles.lessonNotes || [];
-        let videoIndex = 0;
-        let pdfIndex = 0;
+      const allFiles = req.files || {};
+      if (process.env.NODE_ENV !== "production") {
+        console.debug(
+          "allFiles in updateCourse:",
+          JSON.stringify(allFiles, null, 2)
+        );
+      }
+      const videoFiles = allFiles.lessonVideos || [];
+      const pdfFiles = allFiles.lessonNotes || [];
+      let videoIndex = 0;
+      let pdfIndex = 0;
       // Build a map for uploaded videos from the provided lessonVideoMappings
       let lessonVideoMappings = [];
       try {
@@ -615,7 +662,11 @@ const updateCourse = async (req, res, next) => {
       // Map: 'chIdx-lessonIdx' => video file object (from videoFiles order)
       const videoMap = {};
       lessonVideoMappings.forEach((m, idx) => {
-        if (m && typeof m.chapterIndex !== 'undefined' && typeof m.lessonIndex !== 'undefined') {
+        if (
+          m &&
+          typeof m.chapterIndex !== "undefined" &&
+          typeof m.lessonIndex !== "undefined"
+        ) {
           videoMap[`${m.chapterIndex}-${m.lessonIndex}`] = videoFiles[idx];
         }
       });
@@ -655,25 +706,38 @@ const updateCourse = async (req, res, next) => {
               const mapKey = `${chIdx}-${lIdx}`;
               if (l.videoType === "upload" && videoMap[mapKey]) {
                 if (process.env.NODE_ENV !== "production") {
-                  console.debug(`Mapping uploaded video to existing lesson ${l._id} via mapping ${mapKey}:`,
-                    videoMap[mapKey]?.path || videoMap[mapKey]?.secure_url);
+                  console.debug(
+                    `Mapping uploaded video to existing lesson ${l._id} via mapping ${mapKey}:`,
+                    videoMap[mapKey]?.path || videoMap[mapKey]?.secure_url
+                  );
                 }
-                newVideoUrl = videoMap[mapKey]?.path || videoMap[mapKey]?.secure_url || newVideoUrl;
+                newVideoUrl =
+                  videoMap[mapKey]?.path ||
+                  videoMap[mapKey]?.secure_url ||
+                  newVideoUrl;
               } else if (l.videoType === "upload" && videoFiles[videoIndex]) {
                 // Fallback to sequential mapping if no explicit mapping provided
                 if (process.env.NODE_ENV !== "production") {
-                  console.debug(`Mapping uploaded video to existing lesson ${l._id} sequentially:`,
-                    videoFiles[videoIndex]?.path || videoFiles[videoIndex]?.secure_url);
+                  console.debug(
+                    `Mapping uploaded video to existing lesson ${l._id} sequentially:`,
+                    videoFiles[videoIndex]?.path ||
+                      videoFiles[videoIndex]?.secure_url
+                  );
                 }
                 newVideoUrl =
-                  videoFiles[videoIndex]?.path || videoFiles[videoIndex]?.secure_url || newVideoUrl;
+                  videoFiles[videoIndex]?.path ||
+                  videoFiles[videoIndex]?.secure_url ||
+                  newVideoUrl;
                 videoIndex++;
               } else if (l.videoType === "youtube" && l.videoUrl) {
                 newVideoUrl = l.videoUrl;
               }
 
               if (l.hasNotes === "true" && pdfFiles[pdfIndex]) {
-                newNotesUrl = pdfFiles[pdfIndex]?.path || pdfFiles[pdfIndex]?.secure_url || newNotesUrl;
+                newNotesUrl =
+                  pdfFiles[pdfIndex]?.path ||
+                  pdfFiles[pdfIndex]?.secure_url ||
+                  newNotesUrl;
                 pdfIndex++;
               } else if (l.notesUrl) {
                 newNotesUrl = l.notesUrl;
@@ -685,17 +749,26 @@ const updateCourse = async (req, res, next) => {
                   newVideoUrl &&
                   existingLesson.videoUrl !== newVideoUrl
                 ) {
-                  await destroyCloudinaryResourceByUrl(existingLesson.videoUrl, "video");
+                  await destroyCloudinaryResourceByUrl(
+                    existingLesson.videoUrl,
+                    "video"
+                  );
                 }
                 if (
                   existingLesson.notesUrl &&
                   newNotesUrl &&
                   existingLesson.notesUrl !== newNotesUrl
                 ) {
-                  await destroyCloudinaryResourceByUrl(existingLesson.notesUrl, "raw");
+                  await destroyCloudinaryResourceByUrl(
+                    existingLesson.notesUrl,
+                    "raw"
+                  );
                 }
               } catch (err) {
-                console.error("Error deleting replaced lesson resource:", err?.message || err);
+                console.error(
+                  "Error deleting replaced lesson resource:",
+                  err?.message || err
+                );
               }
               lesson = await Lesson.findByIdAndUpdate(
                 l._id,
@@ -718,9 +791,15 @@ const updateCourse = async (req, res, next) => {
               const mapKeyNew = `${chIdx}-${lIdx}`;
               let videoUrl = null;
               if (l.videoType === "upload" && videoMap[mapKeyNew]) {
-                videoUrl = videoMap[mapKeyNew]?.path || videoMap[mapKeyNew]?.secure_url || null;
+                videoUrl =
+                  videoMap[mapKeyNew]?.path ||
+                  videoMap[mapKeyNew]?.secure_url ||
+                  null;
               } else if (l.videoType === "upload" && videoFiles[videoIndex]) {
-                videoUrl = videoFiles[videoIndex]?.path || videoFiles[videoIndex]?.secure_url || null;
+                videoUrl =
+                  videoFiles[videoIndex]?.path ||
+                  videoFiles[videoIndex]?.secure_url ||
+                  null;
                 videoIndex++;
               } else if (l.videoType === "youtube" && l.videoUrl) {
                 videoUrl = l.videoUrl;
@@ -728,7 +807,10 @@ const updateCourse = async (req, res, next) => {
 
               let notesUrl = null;
               if (l.hasNotes === "true" && pdfFiles[pdfIndex]) {
-                notesUrl = pdfFiles[pdfIndex]?.path || pdfFiles[pdfIndex]?.secure_url || null;
+                notesUrl =
+                  pdfFiles[pdfIndex]?.path ||
+                  pdfFiles[pdfIndex]?.secure_url ||
+                  null;
                 pdfIndex++;
               } else if (l.notesUrl) {
                 notesUrl = l.notesUrl;
