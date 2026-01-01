@@ -4,9 +4,7 @@ const cors = require("cors");
 const userRoutes = require("./routes/userRoutes");
 const authRoutes = require("./routes/authRoutes");
 const courseRoutes = require("./routes/courseRoutes");
-const examRoutes = require("./routes/examRoutes");
 const connectDB = require("./config/db");
-const contactRoutes = require("./routes/contactRoutes");
 const adminRoutes = require("./routes/adminRoutes");
 
 dotenv.config();
@@ -34,8 +32,6 @@ connectDB();
 app.use("/api/users", userRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/courses", courseRoutes);
-app.use("/api/exams", examRoutes);
-app.use("/api/contact", contactRoutes);
 // Add Admin Routes
 app.use("/api/admin", adminRoutes);
 

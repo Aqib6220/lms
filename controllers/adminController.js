@@ -1,15 +1,13 @@
 const User = require("../models/User");
 const Course = require("../models/Course");
-const Exam = require("../models/Exam");
 const mongoose = require("mongoose");
 
 const getAdminStats = async (req, res) => {
   try {
     const totalUsers = await User.countDocuments();
     const totalCourses = await Course.countDocuments();
-    const totalExams = await Exam.countDocuments();
 
-    res.json({ totalUsers, totalCourses, totalExams });
+    res.json({ totalUsers, totalCourses });
   } catch (error) {
     console.error("Error fetching admin stats:", error);
     res.status(500).json({ message: "Failed to fetch admin stats" });
@@ -57,7 +55,9 @@ const unbanUser = async (req, res) => {
     res.status(200).json({ message: "User has been unbanned successfully" });
   } catch (error) {
     console.error("❌ Error unbanning user:", error);
-    res.status(500).json({ message: "Internal server error", error: error.message });
+    res
+      .status(500)
+      .json({ message: "Internal server error", error: error.message });
   }
 };
 
