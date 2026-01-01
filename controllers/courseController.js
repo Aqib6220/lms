@@ -87,6 +87,22 @@ const createCourse = async (req, res) => {
       url: f?.path || f?.secure_url || null,
     }));
 
+    // Previous year papers (multiple) files and metadata
+    const previousPaperFiles = req.files?.previousPapers || [];
+    let previousPapersMeta = [];
+    try {
+      previousPapersMeta = Array.isArray(req.body.previousPapersMeta)
+        ? req.body.previousPapersMeta
+        : JSON.parse(req.body.previousPapersMeta || "[]");
+    } catch (err) {
+      previousPapersMeta = [];
+    }
+
+    const previousPapers = previousPaperFiles.map((f, idx) => ({
+      title: (previousPapersMeta[idx] && previousPapersMeta[idx].title) || previousPapersMeta[idx] || `Paper ${idx + 1}`,
+      url: f?.path || f?.secure_url || null,
+    }));
+
     // Parse chapters data from form
     const chaptersRaw = req.body.chapters;
     let chaptersData = [];
@@ -208,7 +224,7 @@ const createCourse = async (req, res) => {
         message: "Invalid syllabus format: " + err.message,
       });
     }
-
+// changing the cmmit
     // ✅ Create Course (Pending Approval)
     const course = new Course({
       title,
@@ -234,6 +250,7 @@ const createCourse = async (req, res) => {
       },
       status: "pending",
       courseNotes,
+      previousPapers,
     });
 
     await course.save();
@@ -579,6 +596,32 @@ const updateCourse = async (req, res, next) => {
     } catch (err) {
       console.error("Error appending new course notes:", err?.message || err);
     }
+
+    // Handle newly uploaded previous year papers (append to existing course.previousPapers)
+    try {
+      let previousPapersMeta = [];
+      try {
+        previousPapersMeta = Array.isArray(req.body.previousPapersMeta)
+          ? req.body.previousPapersMeta
+          : JSON.parse(req.body.previousPapersMeta || "[]");
+      } catch (err) {
+        previousPapersMeta = [];
+      }
+
+      const uploadedPreviousPapers = req.files?.previousPapers || [];
+      if (uploadedPreviousPapers && uploadedPreviousPapers.length > 0) {
+        course.previousPapers = course.previousPapers || [];
+        uploadedPreviousPapers.forEach((f, idx) => {
+          const title = (previousPapersMeta[idx] && previousPapersMeta[idx].title) || previousPapersMeta[idx] || `Paper ${course.previousPapers.length + 1}`;
+          const url = f?.path || f?.secure_url || null;
+          course.previousPapers.push({ title, url });
+        });
+      }
+    } catch (err) {
+      console.error("Error appending previous year papers:", err?.message || err);
+    }
+
+
     // Handle syllabus
     if (syllabus) {
       course.syllabus = Array.isArray(syllabus)
