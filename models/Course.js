@@ -48,6 +48,14 @@ const courseSchema = new mongoose.Schema(
       },
     ],
 
+    // Previous year papers (multiple PDFs with titles)
+    previousPapers: [
+      {
+        title: { type: String },
+        url: { type: String },
+      },
+    ],
+
     // Approval workflow
     status: {
       type: String,
