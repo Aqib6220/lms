@@ -19,7 +19,7 @@ const getUserById = async (req, res) => {
     // console.log("🔹 Requested User ID:", id);
     // console.log("🔹 Authenticated User:", req.user);
 
-    if (req.user.role !== "admin" && req.user._id.toString() !== id) {
+    if (req.user.role !== "admin" && req.user.id !== id) {
       return res.status(403).json({ message: "Access denied" });
     }
 

@@ -13,9 +13,18 @@ const protect = (roles = []) => {
             const decoded = jwt.verify(token, process.env.JWT_SECRET);
             req.user = decoded;
 
-            // ✅ Role-Based Access Control
-            if (roles.length && !roles.includes(decoded.role)) {
-                return res.status(403).json({ message: "Forbidden: You do not have access." });
+            // Debug: show token presence and decoded payload in non-production
+            if (process.env.NODE_ENV !== "production") {
+                console.debug("Auth Middleware: token present", !!token, "decoded:", decoded);
+            }
+
+            // ✅ Role-Based Access Control (case-insensitive)
+            if (roles.length) {
+                const normalizedUserRole = (decoded.role || "").toString().toLowerCase();
+                const normalizedRoles = roles.map((r) => r.toString().toLowerCase());
+                if (!normalizedRoles.includes(normalizedUserRole)) {
+                    return res.status(403).json({ message: "Forbidden: You do not have access." });
+                }
             }
 
             // ✅ CRUCIAL PART: Move to Next Middleware (Multer)
