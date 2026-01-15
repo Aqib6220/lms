@@ -13,6 +13,7 @@ const {
   getPendingCourses,
 } = require("../controllers/courseController");
 const protect = require("../middlewares/authMiddleware");
+const watermarkPdfs = require("../middlewares/pdfWatermark");
 const mongoose = require("mongoose");
 
 const router = express.Router();
@@ -33,6 +34,7 @@ router.post(
       next();
     });
   },
+  watermarkPdfs(),
   createCourse
 );
 
@@ -84,6 +86,7 @@ router.put(
     next();
   },
   uploadCourseFiles,
+  watermarkPdfs(),
   updateCourse
 );
 

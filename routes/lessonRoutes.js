@@ -1,7 +1,8 @@
 const Course = require("../models/Course");
 const Lesson = require("../models/Lesson");
-
+const uploadPdf=require("../middlewares/multerConfig").uploadPdf;
 const express = require("express");
+const watermarkPdfs = require("../middlewares/pdfWatermark");
 const {
   createLesson,
   getLessonsByCourse,
@@ -30,6 +31,8 @@ router.put(
   "/update/:lessonId",
   protect(["trainer"]),
   upload.single("video"),
+  uploadPdf,
+  watermarkPdfs(),
   updateLesson
 );
 

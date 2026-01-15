@@ -196,7 +196,7 @@ const createCourse = async (req, res) => {
                   "Failed to cleanup uploaded file:",
                   url,
                   err?.message || err
-                );
+                )
               }
             }
           } catch (err) {
@@ -504,9 +504,11 @@ const getCourse = async (req, res) => {
 };
 
 const updateCourse = async (req, res, next) => {
+  // We'll use a mongoose transaction to ensure DB atomicity and then delete Cloudinary resources after commit
+  let session;
   try {
     const courseId = req.params.courseId;
-    console.log(req.params);
+
     // Debug: print received files (if any) when handling update
     if (process.env.NODE_ENV !== "production") {
       console.debug(
@@ -514,6 +516,8 @@ const updateCourse = async (req, res, next) => {
         JSON.stringify(req.files, null, 2)
       );
     }
+
+    // Parse common fields from body
     const {
       title,
       description,
@@ -531,6 +535,9 @@ const updateCourse = async (req, res, next) => {
       targetAudience,
       chapters, // Expecting array of chapters with lessons
       syllabus, // Array of syllabus items
+      removedCourseNoteIds, // JSON array of course note _ids to remove
+      removedPreviousPaperIds, // JSON array
+      removeThumbnail, // "true" or "false"
     } = req.body;
 
     // detect uploaded course-level files
@@ -541,25 +548,43 @@ const updateCourse = async (req, res, next) => {
       req.files?.coursePreviousPapersPdf?.[0]?.path || null;
     const uploadedCourseNotesFiles = req.files?.courseNotes || [];
 
-    // Find the course
-    const course = await Course.findById(courseId);
+    // Start a mongoose session/transaction
+    const mongoose = require("mongoose");
+    session = await mongoose.startSession();
+    session.startTransaction();
+
+    // Keep a list of old files we will delete after commit
+    const filesToDelete = [];
+
+    // Find the course inside the session
+    const course = await Course.findById(courseId).session(session);
     if (!course) {
+      await session.abortTransaction();
+      session.endSession();
       return res.status(404).json({ message: "Course not found" });
     }
 
-    // Update basic fields
+    // Handle explicit thumbnail removal
+    if (removeThumbnail === "true") {
+      if (course.thumbnail) filesToDelete.push({ url: course.thumbnail, type: "image" });
+      course.thumbnail = null;
+    }
+
+    // Update basic fields (no file deletion here yet)
     course.title = title || course.title;
     course.description = description || course.description;
     course.category = category || course.category;
-    // If a new thumbnail file was uploaded, delete the old one and set the new
+
+    // If a new thumbnail file was uploaded, queue the old one for deletion and set the new
     if (uploadedThumbnail) {
       if (course.thumbnail && course.thumbnail !== uploadedThumbnail) {
-        await destroyCloudinaryResourceByUrl(course.thumbnail, "image");
+        filesToDelete.push({ url: course.thumbnail, type: "image" });
       }
       course.thumbnail = uploadedThumbnail;
     } else {
       course.thumbnail = thumbnail || course.thumbnail;
     }
+
     course.price = price !== undefined ? price : course.price;
     course.duration = duration || course.duration;
     course.prerequisites = prerequisites || course.prerequisites;
@@ -574,8 +599,18 @@ const updateCourse = async (req, res, next) => {
     course.subject = subject || course.subject;
     course.targetAudience = targetAudience || course.targetAudience;
 
-    // Update course documents if new files are uploaded
+    // Update course documents if new files are uploaded and queue replaced files
     const existingDocs = course.courseDocuments || {};
+    if (uploadedSyllabusPdf && existingDocs.syllabusPdf && existingDocs.syllabusPdf !== uploadedSyllabusPdf) {
+      filesToDelete.push({ url: existingDocs.syllabusPdf, type: "raw" });
+    }
+    if (uploadedNotesPdf && existingDocs.notesPdf && existingDocs.notesPdf !== uploadedNotesPdf) {
+      filesToDelete.push({ url: existingDocs.notesPdf, type: "raw" });
+    }
+    if (uploadedPreviousPapersPdf && existingDocs.previousPapersPdf && existingDocs.previousPapersPdf !== uploadedPreviousPapersPdf) {
+      filesToDelete.push({ url: existingDocs.previousPapersPdf, type: "raw" });
+    }
+
     course.courseDocuments = {
       syllabusPdf: uploadedSyllabusPdf || existingDocs.syllabusPdf || null,
       notesPdf: uploadedNotesPdf || existingDocs.notesPdf || null,
@@ -583,38 +618,36 @@ const updateCourse = async (req, res, next) => {
         uploadedPreviousPapersPdf || existingDocs.previousPapersPdf || null,
     };
 
-    // Delete old course docs if they are replaced
-    try {
-      if (
-        uploadedSyllabusPdf &&
-        existingDocs.syllabusPdf &&
-        existingDocs.syllabusPdf !== uploadedSyllabusPdf
-      ) {
-        await destroyCloudinaryResourceByUrl(existingDocs.syllabusPdf, "raw");
-      }
-      if (
-        uploadedNotesPdf &&
-        existingDocs.notesPdf &&
-        existingDocs.notesPdf !== uploadedNotesPdf
-      ) {
-        await destroyCloudinaryResourceByUrl(existingDocs.notesPdf, "raw");
-      }
-      if (
-        uploadedPreviousPapersPdf &&
-        existingDocs.previousPapersPdf &&
-        existingDocs.previousPapersPdf !== uploadedPreviousPapersPdf
-      ) {
-        await destroyCloudinaryResourceByUrl(
-          existingDocs.previousPapersPdf,
-          "raw"
-        );
-      }
-    } catch (err) {
-      console.error(
-        "Error deleting replaced course document:",
-        err?.message || err
+    // Handle removal of course-level notes (if IDs provided)
+    const removedCourseNotes = JSON.parse(removedCourseNoteIds || "[]");
+    if (Array.isArray(removedCourseNotes) && removedCourseNotes.length > 0) {
+      course.courseNotes = course.courseNotes || [];
+      // collect urls for notes to delete
+      course.courseNotes.forEach((note) => {
+        if (removedCourseNotes.includes(String(note._id))) {
+          if (note.url) filesToDelete.push({ url: note.url, type: "raw" });
+        }
+      });
+      // filter them out from the document
+      course.courseNotes = course.courseNotes.filter(
+        (note) => !removedCourseNotes.includes(String(note._id))
       );
     }
+
+    // Handle removal of previous papers (if IDs provided)
+    const removedPrevPapers = JSON.parse(removedPreviousPaperIds || "[]");
+    if (Array.isArray(removedPrevPapers) && removedPrevPapers.length > 0) {
+      course.previousPapers = course.previousPapers || [];
+      course.previousPapers.forEach((paper) => {
+        if (removedPrevPapers.includes(String(paper._id))) {
+          if (paper.url) filesToDelete.push({ url: paper.url, type: "raw" });
+        }
+      });
+      course.previousPapers = course.previousPapers.filter(
+        (paper) => !removedPrevPapers.includes(String(paper._id))
+      );
+    }
+
     // Handle newly uploaded course-level notes (append to existing course.courseNotes)
     try {
       let courseNotesMeta = [];
@@ -672,7 +705,6 @@ const updateCourse = async (req, res, next) => {
         ? syllabus
         : JSON.parse(syllabus);
     }
-
     // Handle chapters and lessons
     if (chapters) {
       let parsedChapters = Array.isArray(chapters)
@@ -723,19 +755,15 @@ const updateCourse = async (req, res, next) => {
           chapter = await Chapter.findByIdAndUpdate(
             ch._id,
             { title: ch.title, description: ch.description, order: ch.order },
-            { new: true }
+            { new: true, session }
           );
         } else {
-          chapter = await Chapter.create({
+          chapter = await new Chapter({
             title: ch.title,
             description: ch.description,
             order: ch.order,
             course: course._id,
-          });
-        }
-
-        // Handle lessons inside chapter
-        if (ch.lessons && ch.lessons.length > 0) {
+          }).save({ session });
           const lessonIds = [];
           for (let lIdx = 0; lIdx < ch.lessons.length; lIdx++) {
             const l = ch.lessons[lIdx];
@@ -786,30 +814,25 @@ const updateCourse = async (req, res, next) => {
                 newNotesUrl = l.notesUrl;
               }
               // If the existing resource is being replaced by a new URL, delete the old one
+              // Instead of deleting immediately inside the transaction, collect URLs to delete after commit
               try {
                 if (
                   existingLesson.videoUrl &&
                   newVideoUrl &&
                   existingLesson.videoUrl !== newVideoUrl
                 ) {
-                  await destroyCloudinaryResourceByUrl(
-                    existingLesson.videoUrl,
-                    "video"
-                  );
+                  filesToDelete.push({ url: existingLesson.videoUrl, type: "video" });
                 }
                 if (
                   existingLesson.notesUrl &&
                   newNotesUrl &&
                   existingLesson.notesUrl !== newNotesUrl
                 ) {
-                  await destroyCloudinaryResourceByUrl(
-                    existingLesson.notesUrl,
-                    "raw"
-                  );
+                  filesToDelete.push({ url: existingLesson.notesUrl, type: "raw" });
                 }
               } catch (err) {
                 console.error(
-                  "Error deleting replaced lesson resource:",
+                  "Error collecting replaced lesson resource for deletion:",
                   err?.message || err
                 );
               }
@@ -828,7 +851,7 @@ const updateCourse = async (req, res, next) => {
                   chapter: chapter._id,
                   course: course._id,
                 },
-                { new: true }
+                { new: true, session }
               );
             } else {
               const mapKeyNew = `${chIdx}-${lIdx}`;
@@ -859,13 +882,13 @@ const updateCourse = async (req, res, next) => {
                 notesUrl = l.notesUrl;
               }
 
-              lesson = await Lesson.create({
+              lesson = await new Lesson({
                 ...l,
                 chapter: chapter._id,
                 course: course._id,
                 videoUrl,
                 notesUrl,
-              });
+              }).save({ session });
             }
             lessonIds.push(lesson._id);
           }
@@ -882,13 +905,34 @@ const updateCourse = async (req, res, next) => {
       course.chapters = chapterIds;
     }
 
-    // Save the updated course
-    await course.save();
+    // Save the updated course inside the transaction
+    await course.save({ session });
+
+    // Commit the transaction
+    await session.commitTransaction();
+    session.endSession();
+
+    // After successful commit, perform best-effort deletion of old external files
+    for (const f of filesToDelete) {
+      try {
+        await destroyCloudinaryResourceByUrl(f.url, f.type);
+      } catch (err) {
+        console.error("Failed to destroy Cloudinary resource after commit:", f.url, err?.message || err);
+      }
+    }
 
     res.status(200).json({ message: "Course updated successfully", course });
   } catch (error) {
     console.error("Error updating course:", error);
-    res.status(500).json({ message: "Error updating course", error });
+    try {
+      if (session) {
+        await session.abortTransaction();
+        session.endSession();
+      }
+    } catch (err) {
+      console.error("Error aborting transaction:", err);
+    }
+    res.status(500).json({ message: "Error updating course", error: error?.message || error });
   }
 };
 
